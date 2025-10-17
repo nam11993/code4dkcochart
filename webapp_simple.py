@@ -331,51 +331,17 @@ def main():
             # Success message
             st.success(f"🎉 Hoàn tất quét trong 21.7s")
             
-            # Metrics row giống hình - 3 cột (bỏ % thay đổi TB)
-            col1, col2, col3 = st.columns(3)
-            
-            # Đếm tín hiệu theo loại
+            # Xác định signal_name theo loại filter
             if filter_type == "MUA SỊN":
-                mua_sin_count = sum(1 for r in results if isinstance(r, dict) and r.get('BuySin', False))
-                signal_count = mua_sin_count
                 signal_name = "Mua Sịn"
             elif filter_type == "MUA SỊN 2":
-                mua_sin2_count = sum(1 for r in results if isinstance(r, dict) and r.get('BuySin2', False))
-                signal_count = mua_sin2_count
                 signal_name = "Mua Sịn 2"
             elif filter_type == "MUA SỊN 3":
-                mua_sin3_count = sum(1 for r in results if isinstance(r, dict) and r.get('BuySin3', False))
-                signal_count = mua_sin3_count
                 signal_name = "Mua Sịn 3"
             else:
-                buy_break_count = sum(1 for r in results if isinstance(r, dict) and r.get('BuyBreak', False))
-                buy_normal_count = sum(1 for r in results if isinstance(r, dict) and r.get('BuyNormal', False))
-                other_count = len(results) - buy_break_count - buy_normal_count
-                signal_count = buy_break_count + buy_normal_count
                 signal_name = "Tín hiệu mua"
             
-            with col1:
-                st.metric(
-                    "📊 Tổng mã có tín hiệu", 
-                    len(results),
-                    help="Số lượng mã cổ phiếu có tín hiệu"
-                )
-            
-            with col2:
-                st.metric(
-                    f"🔥 {signal_name}", 
-                    signal_count,
-                    help=f"Số tín hiệu {signal_name}"
-                )
-            
-            with col3:
-                st.metric(
-                    "⏱️ Thời gian quét", 
-                    "21.2s",
-                    help="Thời gian thực hiện quét"
-                )
-            
-            st.markdown("---")
+            scan_time = 21.2  # Sẽ được tính từ thời gian thực tế
             
             # Tạo DataFrame theo format trong hình
             df_results = []
@@ -438,10 +404,44 @@ def main():
                 df = df.drop_duplicates(subset=['Mã'], keep='first')
                 deduplicated_count = len(df)
                 
-                # Thông báo nếu có duplicate
-                if original_count > deduplicated_count:
-                    removed_count = original_count - deduplicated_count
-                    st.info(f"ℹ️ Đã loại bỏ {removed_count} mã trùng lặp. Hiển thị {deduplicated_count} mã duy nhất.")
+                # Cập nhật thống kê với số lượng sau khi loại bỏ duplicate
+                # Tính lại signal_count cho dữ liệu đã deduplicated
+                if filter_type == "MUA SỊN 1":
+                    buy_break_count = sum(1 for _, row in df.iterrows() if "Mua Sịn" in str(row.get('Tín hiệu', '')))
+                    signal_count = buy_break_count
+                elif filter_type == "MUA SỊN 2":
+                    buy_sin2_count = sum(1 for _, row in df.iterrows() if "Mua Sịn 2" in str(row.get('Tín hiệu', '')))
+                    signal_count = buy_sin2_count
+                elif filter_type == "MUA SỊN 3":
+                    buy_sin3_count = sum(1 for _, row in df.iterrows() if "Mua Sịn 3" in str(row.get('Tín hiệu', '')))
+                    signal_count = buy_sin3_count
+                else:
+                    buy_break_count = sum(1 for _, row in df.iterrows() if "Mua" in str(row.get('Tín hiệu', '')))
+                    signal_count = buy_break_count
+                
+                # Cập nhật metrics với số lượng đã deduplicated
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        "📊 Tổng mã có tín hiệu", 
+                        deduplicated_count,  # Sử dụng deduplicated_count thay vì len(results)
+                        help="Số lượng mã cổ phiếu có tín hiệu (đã loại bỏ trùng lặp)"
+                    )
+                
+                with col2:
+                    st.metric(
+                        f"🔥 {signal_name}", 
+                        signal_count,
+                        help=f"Số tín hiệu {signal_name} (đã loại bỏ trùng lặp)"
+                    )
+                
+                with col3:
+                    st.metric(
+                        "⏱️ Thời gian quét", 
+                        f"{scan_time:.1f}s",
+                        help="Thời gian thực hiện quét"
+                    )
                 
                 # Hiển thị bảng kết quả với chart buttons
                 st.markdown("### 📊 Kết quả quét")
