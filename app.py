@@ -230,7 +230,10 @@ def dchart_history(symbol: str, resolution: str, since_epoch: int, to_epoch: int
             })
             df["date"] = pd.to_datetime(df["t"], unit="s").dt.tz_localize(None)
             df = df.rename(columns={"o": "O", "h": "H", "l": "L", "c": "C", "v": "V"})
-            return df[["date", "O", "H", "L", "C", "V"]].dropna().sort_values("date").reset_index(drop=True)
+            df = df[["date", "O", "H", "L", "C", "V"]].dropna().sort_values("date").reset_index(drop=True)
+            # Set date làm index để chart hiển thị đúng
+            df = df.set_index("date")
+            return df
 
         except requests.exceptions.RequestException as e:
             print(f"⚠️ Lỗi khi tải {symbol} (lần {attempt+1}/3): {e}")

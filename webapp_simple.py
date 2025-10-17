@@ -155,20 +155,55 @@ def show_chart_content(symbol: str, row_index: int = 0):
                 prev_price = chart_data['C'].iloc[-2] if len(chart_data) > 1 else latest_price
                 change_pct = ((latest_price - prev_price) / prev_price * 100) if prev_price > 0 else 0
                 
-                start_date = chart_data.index[0].strftime('%Y-%m-%d')
-                end_date = chart_data.index[-1].strftime('%Y-%m-%d')
+                # Format giá với 3 chữ số thập phân
+                price_formatted = f"{latest_price:,.3f}₫"
+                
+                # Xử lý datetime - tìm ngày từ dữ liệu thực tế
+                try:
+                    import pandas as pd
+                    from datetime import datetime, timedelta
+                    
+                    # Kiểm tra nếu có column 'date'
+                    if 'date' in chart_data.columns:
+                        start_dt = pd.to_datetime(chart_data['date'].iloc[0])
+                        end_dt = pd.to_datetime(chart_data['date'].iloc[-1])
+                    # Kiểm tra nếu có column 't' (timestamp)
+                    elif 't' in chart_data.columns:
+                        start_dt = pd.to_datetime(chart_data['t'].iloc[0], unit='s')
+                        end_dt = pd.to_datetime(chart_data['t'].iloc[-1], unit='s')
+                    # Kiểm tra index
+                    elif hasattr(chart_data.index[0], 'strftime'):
+                        start_dt = chart_data.index[0]
+                        end_dt = chart_data.index[-1]
+                    elif pd.api.types.is_numeric_dtype(chart_data.index):
+                        # Convert từ timestamp to datetime
+                        start_dt = pd.to_datetime(chart_data.index[0], unit='s')
+                        end_dt = pd.to_datetime(chart_data.index[-1], unit='s')
+                    else:
+                        # Fallback: sử dụng ngày hiện tại
+                        end_dt = datetime.now()
+                        start_dt = end_dt - timedelta(days=500)
+                    
+                    start_date = start_dt.strftime('%Y-%m-%d')
+                    end_date = end_dt.strftime('%Y-%m-%d')
+                    
+                except Exception as ex:
+                    # Fallback cuối cùng: sử dụng ngày hiện tại
+                    from datetime import datetime, timedelta
+                    end_date = datetime.now().strftime('%Y-%m-%d')
+                    start_date = (datetime.now() - timedelta(days=500)).strftime('%Y-%m-%d')
                 
                 color = "🟢" if change_pct > 0 else "🔴" if change_pct < 0 else "⚪"
                 
                 st.info(f"""
-                **💰 Giá hiện tại:** {latest_price:,.1f}₫ {color} {change_pct:+.2f}%  
+                **💰 Giá hiện tại:** {price_formatted} {color} {change_pct:+.2f}%  
                 **📅 Dữ liệu:** {start_date} → {end_date}
                 """)
         else:
             st.error("❌ Không thể tạo biểu đồ")
             
     except Exception as e:
-        st.error(f"❌ Lỗi tạo chart: {e}")
+        st.warning("⚠️ Không thể tải biểu đồ cho mã này")
 
 def show_chart_button(symbol: str, row_index: int = 0):
     """Create chart button for each symbol using expander"""
