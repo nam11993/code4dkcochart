@@ -12,8 +12,10 @@ from datetime import datetime
 # Import từ app.py gốc
 from app import (
     fetch_all_symbols, fetch_symbol_bundle, apply_filters, apply_filters_sin,
-    scan_symbols, scan_symbols_sin, scan_symbols_sin2, scan_symbols_sin3
+    scan_symbols, scan_symbols_sin, scan_symbols_sin2, scan_symbols_sin3,
+    fetch_extended_history, create_candlestick_chart
 )
+import plotly.graph_objects as go
 
 # =====================
 # Page Config
@@ -86,8 +88,92 @@ def load_symbols():
         st.error("File symbols.json không tìm thấy!")
         return []
     except Exception as e:
-        st.error(f"Lỗi đọc file symbols.json: {e}")
+        st.error(f"Lỗi đọc symbols: {e}")
         return []
+
+# =====================
+# Chart Functions
+# =====================
+
+def initialize_session_state():
+    """Initialize session state for chart functionality"""
+    if 'chart_data' not in st.session_state:
+        st.session_state.chart_data = {}
+    if 'show_chart' not in st.session_state:
+        st.session_state.show_chart = False
+    if 'chart_symbol' not in st.session_state:
+        st.session_state.chart_symbol = None
+
+def show_chart_content(symbol: str, row_index: int = 0):
+    """Show chart content inside expander with unique identifier"""
+    # Create unique identifier for this chart instance
+    chart_key = f"{symbol}_{row_index}"
+    
+    # Check if data is cached
+    if symbol not in st.session_state.chart_data:
+        with st.spinner(f"🔄 Đang tải dữ liệu..."):
+            # Fetch extended data (500 days or max available)
+            chart_data = fetch_extended_history(symbol, 500)
+            
+            if chart_data.empty:
+                st.error(f"❌ Không thể tải dữ liệu cho {symbol}")
+                return
+            
+            # Cache the data
+            st.session_state.chart_data[symbol] = chart_data
+    
+    chart_data = st.session_state.chart_data[symbol]
+    
+    # Display data info
+    st.caption(f"📊 Hiển thị {len(chart_data)} ngày dữ liệu")
+    
+    # Create and display chart with unique key
+    try:
+        fig = create_candlestick_chart(symbol, chart_data)
+        if fig:
+            # Add unique identifier to avoid plotly conflicts
+            fig.update_layout(
+                title=f"{symbol} - Technical Analysis (ID: {row_index})",
+                annotations=[
+                    dict(
+                        x=0.99, y=0.01,
+                        xref='paper', yref='paper',
+                        text=f'Chart ID: {chart_key}',
+                        showarrow=False,
+                        font=dict(size=8, color='gray'),
+                        xanchor='right', yanchor='bottom'
+                    )
+                ]
+            )
+            
+            # Use unique key for plotly chart
+            st.plotly_chart(fig, use_container_width=True, key=f"plotly_{chart_key}")
+            
+            # Price info
+            if not chart_data.empty:
+                latest_price = chart_data['C'].iloc[-1]
+                prev_price = chart_data['C'].iloc[-2] if len(chart_data) > 1 else latest_price
+                change_pct = ((latest_price - prev_price) / prev_price * 100) if prev_price > 0 else 0
+                
+                start_date = chart_data.index[0].strftime('%Y-%m-%d')
+                end_date = chart_data.index[-1].strftime('%Y-%m-%d')
+                
+                color = "🟢" if change_pct > 0 else "🔴" if change_pct < 0 else "⚪"
+                
+                st.info(f"""
+                **💰 Giá hiện tại:** {latest_price:,.1f}₫ {color} {change_pct:+.2f}%  
+                **📅 Dữ liệu:** {start_date} → {end_date}
+                """)
+        else:
+            st.error("❌ Không thể tạo biểu đồ")
+            
+    except Exception as e:
+        st.error(f"❌ Lỗi tạo chart: {e}")
+
+def show_chart_button(symbol: str, row_index: int = 0):
+    """Create chart button for each symbol using expander"""
+    with st.expander(f"📈 Chart {symbol}", expanded=False):
+        show_chart_content(symbol, row_index)
 
 def run_scanner(filter_type):
     """Chạy quét tín hiệu với bộ lọc được chọn"""
@@ -129,6 +215,9 @@ def run_scanner(filter_type):
 # Main App - Exact format from image
 # =====================
 def main():
+    # Initialize session state
+    initialize_session_state()
+    
     # Header - centered và đơn giản như trong hình
     st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
@@ -288,9 +377,6 @@ def main():
             
             st.markdown("---")
             
-            # Bảng kết quả giống format trong hình
-            st.markdown("### 📋 Kết quả quét")
-            
             # Tạo DataFrame theo format trong hình
             df_results = []
             for i, result in enumerate(results):
@@ -347,18 +433,57 @@ def main():
             if df_results:
                 df = pd.DataFrame(df_results)
                 
-                # Hiển thị bảng với style giống hình
-                st.dataframe(
-                    df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Mã": st.column_config.TextColumn("Mã", width="small"),
-                        "Giá (₫)": st.column_config.TextColumn("Giá (₫)", width="small"),
-                        "Thay đổi (%)": st.column_config.TextColumn("Thay đổi (%)", width="small"),
-                        "Tín hiệu": st.column_config.TextColumn("Tín hiệu", width="medium")
-                    }
-                )
+                # Loại bỏ duplicate symbols (giữ lại record đầu tiên)
+                original_count = len(df)
+                df = df.drop_duplicates(subset=['Mã'], keep='first')
+                deduplicated_count = len(df)
+                
+                # Thông báo nếu có duplicate
+                if original_count > deduplicated_count:
+                    removed_count = original_count - deduplicated_count
+                    st.info(f"ℹ️ Đã loại bỏ {removed_count} mã trùng lặp. Hiển thị {deduplicated_count} mã duy nhất.")
+                
+                # Hiển thị bảng kết quả với chart buttons
+                st.markdown("### 📊 Kết quả quét")
+                
+                # Header row
+                col_ma, col_gia, col_change, col_signal = st.columns([2, 1.5, 1.5, 2])
+                with col_ma:
+                    st.markdown("**Mã**")
+                with col_gia:
+                    st.markdown("**Giá (₫)**")
+                with col_change:
+                    st.markdown("**Thay đổi (%)**")
+                with col_signal:
+                    st.markdown("**Tín hiệu**")
+                
+                st.divider()
+                
+                # Data rows với chart integrated
+                for i, row in df.iterrows():
+                    # Main info row
+                    col_ma, col_gia, col_change, col_signal = st.columns([2, 1.5, 1.5, 2])
+                    
+                    with col_ma:
+                        st.markdown(f"**{row['Mã']}**")
+                    with col_gia:
+                        st.markdown(row['Giá (₫)'])
+                    with col_change:
+                        # Color coding for change
+                        change_text = row['Thay đổi (%)']
+                        if '+' in change_text:
+                            st.markdown(f"🟢 {change_text}")
+                        elif '-' in change_text:
+                            st.markdown(f"🔴 {change_text}")
+                        else:
+                            st.markdown(f"⚪ {change_text}")
+                    with col_signal:
+                        st.markdown(row['Tín hiệu'])
+                    
+                    # Chart expander for each symbol
+                    show_chart_button(row['Mã'], i)
+                    
+                    st.divider()
                 
                 # Download button
                 csv = df.to_csv(index=False, encoding='utf-8-sig')
@@ -368,6 +493,8 @@ def main():
                     file_name=f"ket_qua_loc_{filter_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
+                
+
         else:
             st.warning("❌ Không tìm thấy tín hiệu nào thỏa mãn điều kiện")
     
@@ -386,6 +513,8 @@ def main():
             
             **Lưu ý:** Quét toàn bộ {len(load_symbols())} mã cổ phiếu.
             """)
+    
+
 
 if __name__ == "__main__":
     main()

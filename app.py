@@ -1255,6 +1255,176 @@ async def run_scan_sin3_send_result(message_source, context: ContextTypes.DEFAUL
         text="🚀 Hoàn tất quét Mua Sịn 3."
     )
 
+# =====================
+# Chart Functions for Web App
+# =====================
+
+def fetch_extended_history(symbol: str, max_days: int = 500) -> pd.DataFrame:
+    """
+    Fetch extended historical data for charting (up to max_days)
+    Falls back to maximum available data if less than max_days
+    """
+    import datetime as dt
+    
+    now = int(time.time())
+    # Tính từ max_days ngày trước (thêm buffer cho weekends/holidays)
+    days_with_buffer = max_days + 50
+    day_from = int((dt.datetime.utcnow() - dt.timedelta(days=days_with_buffer)).timestamp())
+    
+    try:
+        # Fetch daily data
+        daily = dchart_history(symbol, "D", day_from, now)
+        
+        if daily.empty:
+            return pd.DataFrame()
+        
+        # Giới hạn về max_days nếu có quá nhiều data
+        if len(daily) > max_days:
+            daily = daily.tail(max_days)
+            
+        return daily
+        
+    except Exception as e:
+        print(f"❌ Error fetching extended history for {symbol}: {e}")
+        return pd.DataFrame()
+
+def create_candlestick_chart(symbol: str, data: pd.DataFrame):
+    """
+    Create interactive candlestick chart with technical indicators
+    - Candlestick + Volume
+    - MA20, MA50, EMA34, EMA89
+    - RSI subplot
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    
+    if data.empty:
+        return None
+    
+    # Tính các technical indicators
+    C = data['C']
+    H = data['H'] 
+    L = data['L']
+    O = data['O']
+    V = data['V']
+    
+    # Moving Averages
+    MA20 = sma(C, 20)
+    MA50 = sma(C, 50)
+    EMA34 = ema(C, 34)
+    EMA89 = ema(C, 89)
+    
+    # RSI
+    RSI14 = rsi(C, 14)
+    
+    # Volume MA
+    VOL_MA20 = sma(V, 20)
+    
+    # Tạo subplots: [Candlestick + MA], [Volume], [RSI]
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        subplot_titles=(f'{symbol} - Candlestick Chart', 'Volume', 'RSI (14)'),
+        row_heights=[0.6, 0.2, 0.2]
+    )
+    
+    # Candlestick
+    fig.add_trace(
+        go.Candlestick(
+            x=data.index,
+            open=O,
+            high=H,
+            low=L,
+            close=C,
+            name=symbol,
+            showlegend=False
+        ),
+        row=1, col=1
+    )
+    
+    # Moving Averages
+    fig.add_trace(
+        go.Scatter(x=data.index, y=MA20, name='MA20', 
+                  line=dict(color='blue', width=1)),
+        row=1, col=1
+    )
+    fig.add_trace(
+        go.Scatter(x=data.index, y=MA50, name='MA50', 
+                  line=dict(color='orange', width=1)),
+        row=1, col=1
+    )
+    fig.add_trace(
+        go.Scatter(x=data.index, y=EMA34, name='EMA34', 
+                  line=dict(color='red', width=1)),
+        row=1, col=1
+    )
+    fig.add_trace(
+        go.Scatter(x=data.index, y=EMA89, name='EMA89', 
+                  line=dict(color='purple', width=1)),
+        row=1, col=1
+    )
+    
+    # Volume
+    fig.add_trace(
+        go.Bar(x=data.index, y=V, name='Volume', 
+               marker_color='lightblue', showlegend=False),
+        row=2, col=1
+    )
+    fig.add_trace(
+        go.Scatter(x=data.index, y=VOL_MA20, name='Vol MA20', 
+                  line=dict(color='red', width=1)),
+        row=2, col=1
+    )
+    
+    # RSI
+    fig.add_trace(
+        go.Scatter(x=data.index, y=RSI14, name='RSI(14)', 
+                  line=dict(color='green', width=2), showlegend=False),
+        row=3, col=1
+    )
+    
+    # RSI reference lines
+    fig.add_hline(y=70, line_dash="dash", line_color="red", 
+                  annotation_text="Overbought (70)", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="blue", 
+                  annotation_text="Oversold (30)", row=3, col=1)
+    fig.add_hline(y=50, line_dash="dot", line_color="gray", row=3, col=1)
+    
+    # Layout styling (Light theme)
+    fig.update_layout(
+        title=f"{symbol} - Technical Analysis ({len(data)} days)",
+        height=800,
+        template="plotly_white",
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        margin=dict(l=50, r=50, t=100, b=50)
+    )
+    
+    # X-axis formatting
+    fig.update_xaxes(
+        rangeslider_visible=False,
+        rangeselector=dict(
+            buttons=list([
+                dict(count=30, label="30D", step="day", stepmode="backward"),
+                dict(count=60, label="60D", step="day", stepmode="backward"),
+                dict(count=90, label="90D", step="day", stepmode="backward"),
+                dict(step="all", label="All")
+            ])
+        )
+    )
+    
+    # Y-axis RSI range
+    fig.update_yaxes(range=[0, 100], row=3, col=1)
+    
+    return fig
+
 if __name__ == "__main__":
     import sys
     import asyncio
